@@ -85,7 +85,11 @@ void ESP32ArduinoUARTComponent::setup() {
   is_default_rx = rx_pin_ == nullptr || rx_pin_->get_pin() == 3;
 #endif
   if (is_default_tx && is_default_rx) {
+#if ARDUINO_USB_CDC_ON_BOOT
+    this->hw_serial_ = &Serial0;
+#else
     this->hw_serial_ = &Serial;
+#endif
   } else {
     static uint8_t next_uart_num = 1;
     this->hw_serial_ = new HardwareSerial(next_uart_num++);  // NOLINT(cppcoreguidelines-owning-memory)

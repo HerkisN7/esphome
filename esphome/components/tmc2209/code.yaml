@@ -1,324 +1,299 @@
+
 substitutions:
-  device_name: "lush-cover-controller"
-  pulley_diameter_mm: "21.963"
-  gear_ratio: "1880/2000"
-  distance_mm: "2050"
-  acceleration: 500 steps/s^2
-  velocity: 2500 steps/s # 200 (motor steps) * ${microsteps}
-  open_current: 1000ma # show window
-  open_stall_threshold: "28"
-  close_current: 300ma
-  close_stall_threshold: "30"
-  tcool_threshold: "1000"
-  change_direction: "True"
+  # https://microsoft.github.io/devicescript/devices/esp32/esp32c3-supermini
+  board: lolin_c3_mini
+  # board: esp32-c3-devkitm-1
+  # STEP
+  step_pin: GPIO07
+  # DIR
+  dir_pin: GPIO06
+  # Enable TMC2209
+  en_pin: GPIO05
+  # Diag - Stallguard
+  diag_pin: GPIO10
+  # RXD
+  rx_pin: GPIO20
+  # TXD
+  tx_pin: GPIO21
+  # Staus LED - OK for supermini
+  led_pin: GPIO08
+
+  # TMC parameters
+  acceleration: 200 steps/s^2
+  velocity: 500 steps/s # 200 (motor steps) * ${microsteps}
+  microsteps: "0"
+  current: 900ma
+  stall_threshold: "20"
+  tcool_threshold: "100"
+  change_direction: "False"
+  tmc_address: "0x00"
+  sense_resistor: "0.11"
 
 external_components:
-  source: github://lumascet/esphome@stepper-tmc2209-new_uart
-  components: [uart, tmc2209]
+  - source:
+      type: git
+      url: https://github.com/HerkisN7/esphome
+      ref: stepper-tmc2209-new_uart
+    components: [uart, tmc2209]
+#  - source:
+#      type: local
+#      path: ext_components
+#    components: [uart, tmc2209]
+
+#  - source: github://lumascet/esphome@stepper-tmc2209-new_uart
+#    components: [uart, tmc2209] 
+  
+
 
 esphome:
-  name: ${device_name}
-  platform: ESP32
-  board: nodemcu-32s
-  platformio_options:
-    upload_speed: 921600
+  name: test-esp32c3-tmc2209
+  friendly_name: Test ESP32C3 TMC2209
+  platformio_options: 
+    # board_build.flash_mode: dio
+     board_build.extra_flags:
+      - "-DARDUINO_USB_CDC_ON_BOOT=0"
 
   on_boot:
-    - tmc2209b01.setup:
-        microsteps: 16
-        tcool_threshold: ${tcool_threshold}
-        current: ${close_current}
-        stall_threshold: ${open_stall_threshold}
+    - tmc2209.setup:
+          id: stepper1
+          microsteps: !lambda |-
+            return id(set_microsteps).state;          
+          tcool_threshold: !lambda |-
+            return id(set_tcool).state;
+          current: !lambda |-
+            return id(set_current).state;
+          stall_threshold: !lambda |-
+            return id(set_stall).state;
+          sense_resistor: ${sense_resistor}
+          uart_address: ${tmc_address}
+
+ 
+esp32:
+  board: ${board}
+  framework:
+    type: arduino
+ 
 
 wifi:
-  ssid: !secret wifi_ssid
-  password: !secret wifi_password
-
-# Enable logging
+  networks:
+  - ssid: !secret wifi_ssid
+    password: !secret wifi_password
+  
 logger:
-  level: DEBUG
-
-# verbose logger over uart causes motor artifacts as pulses are generated in main loop
-# logger:
-#   level: VERBOSE
-#   logs:
-#     api: DEBUG
-#     api.service: DEBUG
-#     scheduler: DEBUG
+  baud_rate: 0
 
 ota:
-  password: "4289fa8cf6962c85d46b358fa3c6ac57"
+  password: ""
+
+web_server:
+  port: 80
 
 uart:
   id: uart_stepper
-  tx_pin: GPIO22
-  rx_pin: GPIO21
-  baud_rate: 9600
+  tx_pin: ${tx_pin}
+  rx_pin: ${rx_pin}
+  baud_rate: 115200
 
 status_led:
-  pin: GPIO26
+  pin: ${led_pin}
 
-api:
-  encryption:
-    key: "NMaF8iCarV9ovNZ8aFVEd0+AOzjPSKft/b40E7sy/x0="
-  services:
-    - service: control_stepper
-      variables:
-        target: int
-        speed: int
-        microsteps: int
-        tcool_threshold: int
-        stall_threshold: int
-        rms_current_amps: float
+# api:
+#  encryption:
+#    key: ""
+#  reboot_timeout: 0s
+
+interval:
+  - interval: 10s
+    then:
+      - if:
+          condition:
+      # Stepper freewheel
+            - switch.is_off: en_stepper
+          then:
+            - component.update: position
+
+stepper:
+  - platform: tmc2209
+    steppers:
+    - id: stepper1
+      step_pin: ${step_pin}
+      dir_pin:
+        number: ${dir_pin}
+        inverted: ${change_direction}
+#      sleep_pin:
+#        number: GPIO09
+#        inverted: true
+      acceleration: ${acceleration}
+      deceleration: ${acceleration}
+      max_speed: ${velocity}
+      sense_resistor: ${sense_resistor}
+      uart_address: ${tmc_address}
+
+number:
+  - platform: template
+    name: Set microsteps
+    id: set_microsteps
+    mode: box
+    min_value: 0
+    max_value: 256
+    step: 2
+    optimistic: true
+    restore_value: True
+    initial_value: 0
+  - platform: template
+    name: Set current
+    id: set_current
+    mode: box
+    min_value: 0
+    max_value: 1600
+    step: 20
+    optimistic: true
+    restore_value: True
+    initial_value: 900
+  - platform: template
+    name: Set tcool
+    id: set_tcool
+    mode: box
+    min_value: 0
+    max_value: 65535
+    step: 1
+    optimistic: true
+    restore_value: True
+    initial_value: 200
+  - platform: template
+    name: Set stall
+    id: set_stall
+    mode: box
+    min_value: 0
+    max_value: 255
+    step: 1
+    optimistic: true
+    restore_value: True
+    initial_value: 20
+  - platform: template
+    name: Set target
+    id: set_target
+    min_value: -10000
+    max_value: 10000
+    step: 1
+    optimistic: true
+    restore_value: True
+    initial_value: 0
+  - platform: template
+    name: Set velocity
+    id: set_velocity
+    mode: box
+    min_value: 0
+    max_value: 5000
+    step: 50
+    optimistic: true
+    restore_value: True
+    initial_value: 1000
+    on_value:
       then:
-        - tmc2209b01.setup:
-            id: my_stepper
-            microsteps: !lambda "return microsteps;"
-            tcool_threshold: !lambda "return tcool_threshold;"
-            stall_threshold: !lambda "return stall_threshold;"
-            current: !lambda "return rms_current_amps;"
-        - logger.log:
-            format: moving to %d
-            args: [target]
         - stepper.set_speed:
-            id: my_stepper
-            speed: !lambda "return speed;"
-        - stepper.set_target:
-            id: my_stepper
-            target: !lambda "return target;"
-    - service: set_cover_closed
-      then:
-        - script.execute: script_set_cover_closed
-    - service: set_cover_open
-      then:
-        - script.execute: script_set_cover_open
+            id: stepper1
+            speed: !lambda |-
+              return id(set_velocity).state;
 
-    - service: close_variable_speed
-      variables:
-        speed: int
-        stall_threshold: int
-      then:
-        - if:
-            condition:
-              - binary_sensor.is_off: lower_limit_sensor
-            then:
-            - tmc2209b01.setup:
-                id: my_stepper
-                microsteps: 16
-                current: ${open_current}
-                stall_threshold: !lambda "return stall_threshold;"
-                tcool_threshold: !lambda "return stall_threshold*0.95;"
-            - stepper.set_speed:
-                id: my_stepper
-                speed: !lambda "return speed;"
-            - stepper.set_target:
-                id: my_stepper
-                target: 0
 
-    - service: open_variable_speed
-      variables:
-        speed: int
-        stall_threshold: int
+script:
+  - id: init_stepper
+    mode: single
+    then:
+      - tmc2209.setup:
+          id: stepper1
+          microsteps: !lambda |-
+            return id(set_microsteps).state;          
+          tcool_threshold: !lambda |-
+            return id(set_tcool).state;
+          current: !lambda |-
+            return id(set_current).state;
+          stall_threshold: !lambda |-
+            return id(set_stall).state;
+          sense_resistor: ${sense_resistor}
+          uart_address: ${tmc_address}
+
+
+switch:
+  - platform: template
+    name: Stepper Enable
+    id: en_stepper
+    optimistic: true
+    on_turn_on:
+      - switch.turn_on: en_tmc2209
+    on_turn_off:
+      - switch.turn_off: en_tmc2209
+
+  - platform: gpio
+    id: en_tmc2209
+    pin:
+      number: ${en_pin}
+      inverted: true
+
+button:
+  - platform: template
+    name: Stepper GoTo
+    on_press:
       then:
-        - tmc2209b01.setup:
-            id: my_stepper
-            microsteps: 16
-            current: ${open_current}
-            stall_threshold: !lambda "return stall_threshold;"
-            tcool_threshold: !lambda "return stall_threshold*0.95;"
+        - lambda: |-          
+            id(en_stepper).publish_state(true);
+        - script.execute: init_stepper
+        - script.wait: init_stepper
+        - delay: 200ms
+        - lambda: |-          
+            id(position).publish_state(id(stepper1).current_position);
         - stepper.set_speed:
-            id: my_stepper
-            speed: !lambda "return speed;"
+            id: stepper1
+            speed: !lambda |-
+              return id(set_velocity).state;
         - stepper.set_target:
-            id: my_stepper
-            target: !lambda "return id(open_position);"
+            id: stepper1
+            target: !lambda |-
+              return id(set_target).state;
+        - wait_until:
+                condition:
+                  lambda: |-
+                      return id(stepper1).has_reached_target();
+        - lambda: |-          
+            id(position).publish_state(id(stepper1).current_position); 
+        - delay: 2s
+        - lambda: |-            
+            id(en_stepper).publish_state(false);
+  - platform: template
+    name: Stepper Stop
+    on_press:
+      then:
+        - stepper.set_target:
+            id: stepper1
+            target: !lambda "return id(stepper1).current_position;"
+        - lambda: |-          
+            id(position).publish_state(id(stepper1).current_position);          
+        - delay: 2s
+        - lambda: |-            
+            id(en_stepper).publish_state(false);
+
 
 binary_sensor:
-  #   - platform: gpio
-  #     name: Button1
-  #     pin:
-  #       number: GPIO23
-  #       inverted: true
-  #       mode: INPUT
-  #     on_press:
-  #       then:
-  #         - cover.open:
-  #             id: template_cov
-
-  #   - platform: gpio
-  #     name: Button2
-  #     pin:
-  #       number: GPIO34
-  #       inverted: true
-  #       mode: INPUT
-  #     on_press:
-  #       then:
-  #         - cover.close:
-  #             id: template_cov
-
-  #   - platform: gpio
-  #     name: Sensor1
-  #     pin:
-  #       number: GPIO22
-  #       inverted: true
-  #   - platform: gpio
-  #     name: SensorGPIO0
-  #     pin:
-  #       number: GPIO0
-  #       inverted: true
-  #   - platform: gpio
-  #     name: Sensor2
-  #     pin:
-  #       number: GPIO32
-  #       inverted: true
-  - platform: homeassistant
-    name: "Window sensor homeassistant"
-    entity_id: binary_sensor.lumi_lumi_sensor_magnet_aq2_2ad04f04_on_off
-    id: window_sensor
-    on_press:
-      script.execute: stop_at_current_position
   - platform: gpio
     id: stall_guard_sensor
     name: StallGuard
-    pin: GPIO34
+    pin: ${diag_pin}
     on_press:
-      script.execute: stop_at_current_position
-  - platform: gpio
-    id: lower_limit_sensor
-    name: Lower Limit
-    pin: 
-      number: GPIO35
-      inverted: True
-    on_press:
-      if:
-        condition:
-          lambda: "return id(template_cov).current_operation == COVER_OPERATION_CLOSING;"
-        then:
-          - script.execute: stop_at_current_position
-          - script.execute: script_set_cover_closed
+      then:
+        - stepper.set_target:
+            id: stepper1
+            target: !lambda "return id(stepper1).current_position;"
+	- delay: 1s
+        - lambda: |-          
+            id(position).publish_state(id(stepper1).current_position);
+            id(en_stepper).publish_state(false);
 
-stepper:
-  - platform: tmc2209b01
-    id: my_stepper
-
-    step_pin: GPIO27
-    dir_pin:
-      number: GPIO26
-      inverted: ${change_direction}
-
-    sleep_pin:
-      number: GPIO25
-      inverted: true
-    acceleration: ${acceleration}
-    max_speed: ${velocity}
-
-script:
-  - id: stop_at_current_position
-    then:
-      stepper.set_target:
-        id: my_stepper
-        target: !lambda "return id(my_stepper).current_position;"
-  - id: script_set_cover_closed
-    then:
-      - stepper.report_position:
-          id: my_stepper
-          position: 0
-      - stepper.set_target:
-          id: my_stepper
-          target: 0
-  - id: script_set_cover_open
-    then:
-      - stepper.report_position:
-          id: my_stepper
-          position: !lambda "return id(open_position);"
-      - stepper.set_target:
-          id: my_stepper
-          target: !lambda "return id(open_position);"
-
-globals:
-  - id: open_position
-    type: float
-    initial_value: "${distance_mm} / (${pulley_diameter_mm} * ${gear_ratio} * PI) * 200 * 16"
-
-cover:
+sensor:
   - platform: template
-    id: template_cov
-    name: "${device_name} cover"
-    has_position: True
-
-    open_action:
-      - tmc2209b01.setup:
-          current: ${open_current}
-          stall_threshold: ${open_stall_threshold}
-          microsteps: 16
-      - stepper.set_speed:
-          id: my_stepper
-          speed: ${velocity}
-      - stepper.set_target:
-          id: my_stepper
-          target: !lambda "return id(open_position);"
-
-    close_action:
-      - if:
-          condition:
-            and:
-              - binary_sensor.is_off: window_sensor
-              - binary_sensor.is_off: lower_limit_sensor
-          then:
-            - tmc2209b01.setup:
-                current: ${close_current}
-                stall_threshold: ${close_stall_threshold}
-                microsteps: 16
-            - stepper.set_speed:
-                id: my_stepper
-                speed: ${velocity}
-            - stepper.set_target:
-                id: my_stepper
-                # 0 Means closed
-                target: 0
-
-    position_action:
-      - if:
-          condition:
-            binary_sensor.is_off: window_sensor
-          then:
-            - tmc2209b01.setup:
-                current: ${open_current}
-                stall_threshold: ${open_stall_threshold}
-                microsteps: 16
-            - stepper.set_speed:
-                id: my_stepper
-                speed: ${velocity}
-            - stepper.set_target:
-                id: my_stepper
-                target: !lambda "return id(open_position) * pos;"
-
-    stop_action:
-      - script.execute: stop_at_current_position
-
-interval:
-  interval: 2s
-  then:
+    name: Pozice
+    id: position
     lambda: |-
-      static auto operation = COVER_OPERATION_IDLE;
-      static auto position = id(my_stepper).current_position;
-      if (operation != id(template_cov).current_operation ||
-          position != id(my_stepper).current_position)
-      {
-        if (id(my_stepper).current_position > id(my_stepper).target_position)
-          operation = COVER_OPERATION_CLOSING;
-        else if (id(my_stepper).current_position < id(my_stepper).target_position)
-          operation = COVER_OPERATION_OPENING;
-        else
-          operation = COVER_OPERATION_IDLE;
-        id(template_cov).current_operation = operation;
+      return id(stepper1).current_position;
+    update_interval: never
 
-        position =  id(my_stepper).current_position;
-        id(template_cov).position = position / id(open_position);
-
-        id(template_cov).publish_state();
-
-        ESP_LOGD("main", "Stepper Position is: %d/%d", id(my_stepper).current_position, (int)id(open_position));
-        // ESP_LOGD("main", "Stepper Position is: %d/%d", id(my_stepper).current_position, (int)id(open_position));
-        // ESP_LOGD("main", "Stepper Position is: %d/%d", id(my_stepper).current_position, (int)id(open_position));
-      }

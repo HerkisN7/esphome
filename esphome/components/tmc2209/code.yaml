@@ -20,7 +20,7 @@ substitutions:
 
   # TMC parameters
   acceleration: 200 steps/s^2
-  velocity: 500 steps/s # 200 (motor steps) * ${microsteps}
+  velocity: 5000 steps/s # 200 (motor steps) * ${microsteps}
   microsteps: "0"
   current: 900ma
   stall_threshold: "20"
